@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import FileUploader from './components/FileUploader';
 import ResultsDisplay from './components/ResultsDisplay';
 import SummaryDisplay from './components/SummaryDisplay';
+import Loader from './components/Loader';
+
 import { uploadDocuments, summarizeDocuments } from './services/api';
 import { clsx } from 'clsx';
 import { DocumentMagnifyingGlassIcon, DocumentTextIcon } from '@heroicons/react/24/solid';
@@ -150,6 +152,7 @@ function App() {
           </p>
         </div>
       </footer>
+      {isLoading && <Loader />}
     </div>
   );
 }
