@@ -4,12 +4,12 @@ const API_BASE_URL = 'http://localhost:3000/api';
 
 export const uploadDocuments = async (formData) => {
     try {
-        const response = await axios.post(`${API_BASE_URL}/upload`, formData, {
+        const response = await axios.post(`${API_BASE_URL}/workflow-process`, formData, {
             headers: {
                 'Content-Type': 'multipart/form-data',
             },
         });
-        return response.data;
+        return response.data.result;
     } catch (error) {
         console.error('Error uploading documents:', error);
         throw error;
