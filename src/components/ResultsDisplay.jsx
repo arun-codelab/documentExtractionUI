@@ -1,10 +1,113 @@
 import React, { useState } from 'react';
 import { CheckCircleIcon, PencilSquareIcon, XMarkIcon } from '@heroicons/react/24/solid';
 
+const IMAGE_URL_PATTERN = /\.(png|jpe?g|webp|gif|bmp|tiff|svg)(\?|$)/i;
+
+const isImageUrl = (url) => typeof url === 'string' && IMAGE_URL_PATTERN.test(url);
+
+const getPreviewUrl = (result = {}) => {
+    const candidates = [
+        result.imageUrl,
+        result.imageSignedUrl,
+        result.signedImageUrl,
+        result.previewUrl,
+        result.originalSignedUrl,
+        result.signedUrl
+    ];
+
+    return candidates.find((url) => isImageUrl(url)) || null;
+};
+
+const hashFieldColor = (field) => {
+    const hash = field.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+    const hue = hash % 360;
+
+    return {
+        border: `hsl(${hue} 80% 45%)`,
+        fill: `hsla(${hue} 80% 45% / 0.2)`
+    };
+};
+
+const getHighlightsFromCoordinates = (coordinates = {}) => {
+    return Object.entries(coordinates).flatMap(([field, fieldRegions]) => {
+        if (!Array.isArray(fieldRegions)) return [];
+
+        return fieldRegions.map((region, idx) => {
+            const normalizedVertices = region?.normalizedVertices || [];
+            if (!normalizedVertices.length) return null;
+
+            const xs = normalizedVertices.map((point) => point?.x).filter((x) => typeof x === 'number');
+            const ys = normalizedVertices.map((point) => point?.y).filter((y) => typeof y === 'number');
+            if (!xs.length || !ys.length) return null;
+
+            const minX = Math.min(...xs);
+            const maxX = Math.max(...xs);
+            const minY = Math.min(...ys);
+            const maxY = Math.max(...ys);
+
+            if (maxX <= minX || maxY <= minY) return null;
+
+            return {
+                id: `${field}-${idx}`,
+                field,
+                left: minX,
+                top: minY,
+                width: maxX - minX,
+                height: maxY - minY
+            };
+        }).filter(Boolean);
+    });
+};
+
+const DocumentImageWithHighlights = ({ result, previewUrl, hidden, onHide }) => {
+    if (!previewUrl || hidden) return null;
+
+    const highlights = getHighlightsFromCoordinates(result?.coordinates);
+
+    return (
+        <div className="relative rounded-md border border-gray-200 overflow-hidden bg-white">
+            <img
+                src={previewUrl}
+                alt={result?.sourceFile?.split('/').pop() || 'Document'}
+                className="w-full h-auto block"
+                onError={onHide}
+            />
+
+            <div className="absolute inset-0 pointer-events-none">
+                {highlights.map((highlight) => {
+                    const color = hashFieldColor(highlight.field);
+                    return (
+                        <div
+                            key={highlight.id}
+                            className="absolute border-2"
+                            style={{
+                                left: `${highlight.left * 100}%`,
+                                top: `${highlight.top * 100}%`,
+                                width: `${highlight.width * 100}%`,
+                                height: `${highlight.height * 100}%`,
+                                borderColor: color.border,
+                                backgroundColor: color.fill
+                            }}
+                        >
+                            <span
+                                className="absolute -top-5 left-0 text-[10px] leading-none px-1 py-0.5 rounded text-white"
+                                style={{ backgroundColor: color.border }}
+                            >
+                                {highlight.field}
+                            </span>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
 const ResultsDisplay = ({ results }) => {
     const [selectedIndex, setSelectedIndex] = useState(null);
     const [formValues, setFormValues] = useState({});
     const [editedDataByIndex, setEditedDataByIndex] = useState({});
+    const [hiddenPreviewByIndex, setHiddenPreviewByIndex] = useState({});
 
     const openEditor = (index) => {
         const sourceData = editedDataByIndex[index] || results[index]?.data || {};
@@ -36,7 +139,7 @@ const ResultsDisplay = ({ results }) => {
     };
 
     const getDisplayData = (index, result) => editedDataByIndex[index] || result.data || {};
-
+    const getDocumentName = (result) => result?.sourceFile?.split('/').pop() || 'Document';
     if (!results || results.length === 0) return null;
 
     return (
@@ -47,6 +150,8 @@ const ResultsDisplay = ({ results }) => {
                     {results.map((result, index) => {
                         const displayData = getDisplayData(index, result);
                         const hasData = Object.keys(displayData).length > 0;
+                        const previewUrl = getPreviewUrl(result);
+                        const hasNonImageSignedUrl = Boolean(result?.signedUrl) && !isImageUrl(result?.signedUrl);
 
                         return (
                             <div key={index} className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden border border-gray-100">
@@ -54,6 +159,16 @@ const ResultsDisplay = ({ results }) => {
                                     <span className="font-semibold text-blue-800">{result.type}</span>
                                     <CheckCircleIcon className="w-5 h-5 text-green-500" />
                                 </div>
+                                {previewUrl && !hiddenPreviewByIndex[index] && (
+                                    <div className="px-4 pt-4">
+                                        <DocumentImageWithHighlights
+                                            result={result}
+                                            previewUrl={previewUrl}
+                                            hidden={hiddenPreviewByIndex[index]}
+                                            onHide={() => setHiddenPreviewByIndex((prev) => ({ ...prev, [index]: true }))}
+                                        />
+                                    </div>
+                                )}
                                 <div className="p-4">
                                     {hasData && Object.entries(displayData).map(([key, value]) => (
                                         <div key={key} className="mb-2 last:mb-0">
@@ -64,10 +179,15 @@ const ResultsDisplay = ({ results }) => {
                                     {!hasData && (
                                         <p className="text-sm text-gray-500 italic">No data extracted.</p>
                                     )}
+                                    {!previewUrl && hasNonImageSignedUrl && (
+                                        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1 mt-2">
+                                            Preview unavailable: `signedUrl` is not an image URL.
+                                        </p>
+                                    )}
                                 </div>
                                 <div className="bg-gray-50 px-4 py-3 border-t border-gray-100 flex items-center justify-between gap-3">
                                     <span className="text-xs text-gray-400 truncate">
-                                        Source: {result.sourceFile?.split('/').pop()}
+                                        Source: {getDocumentName(result)}
                                     </span>
                                     <button
                                         onClick={() => openEditor(index)}
@@ -91,7 +211,7 @@ const ResultsDisplay = ({ results }) => {
                             <div>
                                 <h3 className="text-lg font-semibold text-gray-900">Edit Document Data</h3>
                                 <p className="text-xs text-gray-500 mt-1">
-                                    {results[selectedIndex]?.sourceFile?.split('/').pop() || 'Selected document'}
+                                    {getDocumentName(results[selectedIndex])}
                                 </p>
                                 <p className="text-xs text-blue-700 font-medium mt-1">
                                     Type: {results[selectedIndex]?.type || 'Unknown'}
@@ -106,6 +226,33 @@ const ResultsDisplay = ({ results }) => {
                         </div>
 
                         <div className="px-5 py-4 space-y-4 overflow-y-auto flex-1">
+                            {(() => {
+                                const selectedResult = results[selectedIndex];
+                                const selectedPreviewUrl = getPreviewUrl(selectedResult);
+                                const hasNonImageSignedUrl = Boolean(selectedResult?.signedUrl) && !isImageUrl(selectedResult?.signedUrl);
+
+                                if (selectedPreviewUrl && !hiddenPreviewByIndex[selectedIndex]) {
+                                    return (
+                                        <DocumentImageWithHighlights
+                                            result={selectedResult}
+                                            previewUrl={selectedPreviewUrl}
+                                            hidden={hiddenPreviewByIndex[selectedIndex]}
+                                            onHide={() => setHiddenPreviewByIndex((prev) => ({ ...prev, [selectedIndex]: true }))}
+                                        />
+                                    );
+                                }
+
+                                if (!selectedPreviewUrl && hasNonImageSignedUrl) {
+                                    return (
+                                        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1">
+                                            Preview unavailable: `signedUrl` points to a non-image file.
+                                        </p>
+                                    );
+                                }
+
+                                return null;
+                            })()}
+
                             {Object.keys(formValues).length === 0 && (
                                 <p className="text-sm text-gray-500">No editable fields found for this document.</p>
                             )}
