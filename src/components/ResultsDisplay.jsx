@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
-import { CheckCircleIcon, PencilSquareIcon, XMarkIcon } from '@heroicons/react/24/solid';
+import {
+    ArrowsPointingOutIcon,
+    CheckCircleIcon,
+    MagnifyingGlassMinusIcon,
+    MagnifyingGlassPlusIcon,
+    PencilSquareIcon,
+    XMarkIcon
+} from '@heroicons/react/24/solid';
 
 const IMAGE_URL_PATTERN = /\.(png|jpe?g|webp|gif|bmp|tiff|svg)(\?|$)/i;
 
@@ -59,13 +66,23 @@ const getHighlightsFromCoordinates = (coordinates = {}) => {
     });
 };
 
-const DocumentImageWithHighlights = ({ result, previewUrl, hidden, onHide }) => {
+const DocumentImageWithHighlights = ({ result, previewUrl, hidden, onHide, showEnlargeButton, onEnlarge }) => {
     if (!previewUrl || hidden) return null;
 
     const highlights = getHighlightsFromCoordinates(result?.coordinates);
 
     return (
         <div className="relative rounded-md border border-gray-200 overflow-hidden bg-white">
+            {showEnlargeButton && (
+                <button
+                    type="button"
+                    onClick={onEnlarge}
+                    className="absolute top-2 right-2 z-10 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white/90 text-gray-700 text-xs border border-gray-200 hover:bg-white"
+                >
+                    <ArrowsPointingOutIcon className="w-4 h-4" />
+                    Enlarge
+                </button>
+            )}
             <img
                 src={previewUrl}
                 alt={result?.sourceFile?.split('/').pop() || 'Document'}
@@ -108,6 +125,9 @@ const ResultsDisplay = ({ results }) => {
     const [formValues, setFormValues] = useState({});
     const [editedDataByIndex, setEditedDataByIndex] = useState({});
     const [hiddenPreviewByIndex, setHiddenPreviewByIndex] = useState({});
+    const [closedCardByIndex, setClosedCardByIndex] = useState({});
+    const [imageModalState, setImageModalState] = useState({ isOpen: false, result: null, previewUrl: null });
+    const [zoomLevel, setZoomLevel] = useState(1);
 
     const openEditor = (index) => {
         const sourceData = editedDataByIndex[index] || results[index]?.data || {};
@@ -140,6 +160,27 @@ const ResultsDisplay = ({ results }) => {
 
     const getDisplayData = (index, result) => editedDataByIndex[index] || result.data || {};
     const getDocumentName = (result) => result?.sourceFile?.split('/').pop() || 'Document';
+
+    const openImageModal = (result, previewUrl) => {
+        setImageModalState({ isOpen: true, result, previewUrl });
+        setZoomLevel(1);
+    };
+
+    const closeImageModal = () => {
+        setImageModalState({ isOpen: false, result: null, previewUrl: null });
+        setZoomLevel(1);
+    };
+
+    const handleZoomIn = () => setZoomLevel((prev) => Math.min(3, Number((prev + 0.25).toFixed(2))));
+    const handleZoomOut = () => setZoomLevel((prev) => Math.max(0.5, Number((prev - 0.25).toFixed(2))));
+
+    const closeResultCard = (index) => {
+        setClosedCardByIndex((prev) => ({ ...prev, [index]: true }));
+        if (selectedIndex === index) {
+            closeEditor();
+        }
+    };
+
     if (!results || results.length === 0) return null;
 
     return (
@@ -148,6 +189,8 @@ const ResultsDisplay = ({ results }) => {
                 <h2 className="text-2xl font-bold text-gray-800">Extraction Results</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {results.map((result, index) => {
+                        if (closedCardByIndex[index]) return null;
+
                         const displayData = getDisplayData(index, result);
                         const hasData = Object.keys(displayData).length > 0;
                         const previewUrl = getPreviewUrl(result);
@@ -157,7 +200,17 @@ const ResultsDisplay = ({ results }) => {
                             <div key={index} className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden border border-gray-100">
                                 <div className="bg-blue-50 px-4 py-3 border-b border-blue-100 flex justify-between items-center">
                                     <span className="font-semibold text-blue-800">{result.type}</span>
-                                    <CheckCircleIcon className="w-5 h-5 text-green-500" />
+                                    <div className="flex items-center gap-2">
+                                        <CheckCircleIcon className="w-5 h-5 text-green-500" />
+                                        <button
+                                            type="button"
+                                            onClick={() => closeResultCard(index)}
+                                            className="p-1 rounded text-gray-500 hover:text-gray-700 hover:bg-white/70"
+                                            aria-label="Close card"
+                                        >
+                                            <XMarkIcon className="w-4 h-4" />
+                                        </button>
+                                    </div>
                                 </div>
                                 {previewUrl && !hiddenPreviewByIndex[index] && (
                                     <div className="px-4 pt-4">
@@ -166,6 +219,8 @@ const ResultsDisplay = ({ results }) => {
                                             previewUrl={previewUrl}
                                             hidden={hiddenPreviewByIndex[index]}
                                             onHide={() => setHiddenPreviewByIndex((prev) => ({ ...prev, [index]: true }))}
+                                            showEnlargeButton
+                                            onEnlarge={() => openImageModal(result, previewUrl)}
                                         />
                                     </div>
                                 )}
@@ -238,6 +293,8 @@ const ResultsDisplay = ({ results }) => {
                                             previewUrl={selectedPreviewUrl}
                                             hidden={hiddenPreviewByIndex[selectedIndex]}
                                             onHide={() => setHiddenPreviewByIndex((prev) => ({ ...prev, [selectedIndex]: true }))}
+                                            showEnlargeButton
+                                            onEnlarge={() => openImageModal(selectedResult, selectedPreviewUrl)}
                                         />
                                     );
                                 }
@@ -285,6 +342,59 @@ const ResultsDisplay = ({ results }) => {
                             >
                                 Save
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {imageModalState.isOpen && (
+                <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
+                    <div className="bg-white w-full max-w-6xl max-h-[92vh] rounded-xl shadow-2xl overflow-hidden flex flex-col">
+                        <div className="px-5 py-3 border-b border-gray-200 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-base font-semibold text-gray-900">Image Viewer</h3>
+                                <p className="text-xs text-gray-500">{getDocumentName(imageModalState.result)}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleZoomOut}
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+                                >
+                                    <MagnifyingGlassMinusIcon className="w-4 h-4" />
+                                    Zoom Out
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleZoomIn}
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+                                >
+                                    <MagnifyingGlassPlusIcon className="w-4 h-4" />
+                                    Zoom In
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={closeImageModal}
+                                    className="p-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                                >
+                                    <XMarkIcon className="w-5 h-5" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-auto p-4 bg-gray-50">
+                            <div
+                                className="mx-auto origin-top-left"
+                                style={{
+                                    transform: `scale(${zoomLevel})`,
+                                    width: `${100 / zoomLevel}%`
+                                }}
+                            >
+                                <DocumentImageWithHighlights
+                                    result={imageModalState.result}
+                                    previewUrl={imageModalState.previewUrl}
+                                />
+                            </div>
                         </div>
                     </div>
                 </div>

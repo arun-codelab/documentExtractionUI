@@ -3,9 +3,10 @@ import FileUploader from './components/FileUploader';
 import ResultsDisplay from './components/ResultsDisplay';
 import Loader from './components/Loader';
 
-import { uploadDocuments } from './services/api';
+import { fetchBatchResults, uploadDocuments } from './services/api';
 import { clsx } from 'clsx';
 import {
+  EnvelopeIcon,
   DocumentMagnifyingGlassIcon,
   XMarkIcon,
   ArrowUpTrayIcon,
@@ -16,6 +17,9 @@ function App() {
   const [activeSection, setActiveSection] = useState('document-processing');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [extractionResults, setExtractionResults] = useState([]);
+  const [resultsViewKey, setResultsViewKey] = useState(0);
+  const [emailBatches, setEmailBatches] = useState([]);
+  const [isBatchLoading, setIsBatchLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -27,11 +31,33 @@ function App() {
     try {
       const response = await uploadDocuments(formData);
       setExtractionResults(response.results || []);
+      setResultsViewKey((prev) => prev + 1);
       setIsUploadModalOpen(false);
     } catch (err) {
       setError(err.response?.data?.error || 'An error occurred during extraction.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadBatchResults = async () => {
+    setIsBatchLoading(true);
+    setError(null);
+    try {
+      const response = await fetchBatchResults();
+      setEmailBatches(response.batches || []);
+    } catch (err) {
+      setError(err.response?.data?.error || 'An error occurred while fetching batch results.');
+      setEmailBatches([]);
+    } finally {
+      setIsBatchLoading(false);
+    }
+  };
+
+  const handleSectionClick = (section) => {
+    setActiveSection(section);
+    if (section === 'email-batches') {
+      loadBatchResults();
     }
   };
 
@@ -52,7 +78,7 @@ function App() {
 
         <nav className="px-4 py-5">
           <button
-            onClick={() => setActiveSection('document-processing')}
+            onClick={() => handleSectionClick('document-processing')}
             className={clsx(
               'w-full flex items-center gap-3 px-4 py-3 rounded-md text-sm font-medium transition-colors',
               activeSection === 'document-processing'
@@ -63,13 +89,31 @@ function App() {
             <RectangleStackIcon className="h-5 w-5" />
             Document Processing
           </button>
+          <button
+            onClick={() => handleSectionClick('email-batches')}
+            className={clsx(
+              'w-full mt-2 flex items-center gap-3 px-4 py-3 rounded-md text-sm font-medium transition-colors',
+              activeSection === 'email-batches'
+                ? 'bg-blue-600 text-white'
+                : 'text-slate-200 hover:bg-slate-800'
+            )}
+          >
+            <EnvelopeIcon className="h-5 w-5" />
+            Email Batch Results
+          </button>
         </nav>
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0">
         <header className="bg-white border-b border-slate-200 px-6 py-4">
-          <h2 className="text-xl font-semibold text-slate-900">Document Processing</h2>
-          <p className="text-sm text-slate-500 mt-1">Upload documents and review classified plus extracted results.</p>
+          <h2 className="text-xl font-semibold text-slate-900">
+            {activeSection === 'document-processing' ? 'Document Processing' : 'Email Batch Results'}
+          </h2>
+          <p className="text-sm text-slate-500 mt-1">
+            {activeSection === 'document-processing'
+              ? 'Upload documents and review classified plus extracted results.'
+              : 'Review documents extracted from email attachments and stored in the database.'}
+          </p>
         </header>
 
         <main className="flex-1 p-6 sm:p-8">
@@ -80,23 +124,72 @@ function App() {
               </div>
             )}
 
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">Manage Uploads</h3>
-                  <p className="text-sm text-slate-500 mt-1">Use the upload action to process new documents.</p>
+            {activeSection === 'document-processing' && (
+              <>
+                <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-900">Manage Uploads</h3>
+                      <p className="text-sm text-slate-500 mt-1">Use the upload action to process new documents.</p>
+                    </div>
+                    <button
+                      onClick={() => setIsUploadModalOpen(true)}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+                    >
+                      <ArrowUpTrayIcon className="h-4 w-4" />
+                      Upload Image
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => setIsUploadModalOpen(true)}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
-                >
-                  <ArrowUpTrayIcon className="h-4 w-4" />
-                  Upload Image
-                </button>
-              </div>
-            </div>
 
-            <ResultsDisplay results={extractionResults} />
+                <ResultsDisplay key={resultsViewKey} results={extractionResults} />
+              </>
+            )}
+
+            {activeSection === 'email-batches' && (
+              <div className="space-y-6">
+                <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-900">Email Attachment Processing</h3>
+                      <p className="text-sm text-slate-500 mt-1">Fetch and review processed batch results from backend.</p>
+                    </div>
+                    <button
+                      onClick={loadBatchResults}
+                      disabled={isBatchLoading}
+                      className={clsx(
+                        'px-4 py-2 rounded-md text-sm font-medium transition-colors',
+                        isBatchLoading
+                          ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                          : 'bg-blue-600 text-white hover:bg-blue-700'
+                      )}
+                    >
+                      {isBatchLoading ? 'Loading...' : 'Refresh Results'}
+                    </button>
+                  </div>
+                </div>
+
+                {!isBatchLoading && emailBatches.length === 0 && (
+                  <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+                    <p className="text-sm text-slate-600">No email batches found.</p>
+                  </div>
+                )}
+
+                {emailBatches.map((batch) => (
+                  <div key={batch.id || batch.batchId} className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+                    <div className="mb-4">
+                      <h4 className="text-base font-semibold text-slate-900">
+                        Email From: {batch.emailFrom || '-'}
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-1">Batch DB ID: {batch.id}</p>
+                      <p className="text-xs text-slate-500 mt-1">Processed Documents: {batch.processedDocs || 0}</p>
+                      <p className="text-xs text-slate-500 mt-1">Received At: {batch.receivedAt || '-'}</p>
+                    </div>
+                    <ResultsDisplay key={`${batch.id}-${batch.receivedAt || ''}`} results={batch.results || []} />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </main>
       </div>
